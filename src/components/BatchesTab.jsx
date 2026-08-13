@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 
 const STATUS_LABEL = {
@@ -14,32 +14,51 @@ export default function BatchesTab() {
   const [loading, setLoading] = useState(true);
   const [sendingId, setSendingId] = useState(null);
   const [error, setError] = useState(null);
+  const pollTimer = useRef(null);
 
   const load = async () => {
-    setLoading(true);
-    try {
-      const data = await api.getBatches();
-      setBatches(data.batches || []);
-      setError(null);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    const data = await api.getBatches();
+    setBatches(data.batches || []);
+    return data.batches || [];
   };
 
   useEffect(() => {
-    load();
+    load()
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+
+    return () => {
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+    };
   }, []);
 
   const handleSend = async (batchId) => {
     setSendingId(batchId);
+    setError(null);
     try {
       await api.sendBatch(batchId);
-      await load();
+
+      const startedAt = Date.now();
+      const poll = async () => {
+        try {
+          const updated = await load();
+          const batch = updated.find((b) => b.id === batchId);
+          const stillGoing = !batch || batch.status === 'sending' || batch.status === 'pending';
+
+          if (stillGoing && Date.now() - startedAt < 120000) {
+            pollTimer.current = setTimeout(poll, 4000);
+          } else {
+            setSendingId(null);
+          }
+        } catch (err) {
+          setError(err.message);
+          setSendingId(null);
+        }
+      };
+
+      pollTimer.current = setTimeout(poll, 4000);
     } catch (err) {
       setError(err.message);
-    } finally {
       setSendingId(null);
     }
   };
@@ -66,7 +85,7 @@ export default function BatchesTab() {
               onClick={() => handleSend(batch.id)}
               disabled={sendingId === batch.id || batch.status === 'sending'}
             >
-              {sendingId === batch.id ? 'Sending…' : 'Send'}
+              {sendingId === batch.id || batch.status === 'sending' ? 'Sending…' : 'Send'}
             </button>
           </div>
 
