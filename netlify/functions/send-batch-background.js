@@ -2,7 +2,6 @@ import { getSupabase } from './_lib/supabase.js';
 import { auditWebsite } from './_lib/audit.js';
 import { generateEmailContent } from './_lib/anthropic.js';
 import { sendGmail } from './_lib/gmail.js';
-import { isAuthorized, unauthorizedResponse } from './_lib/auth.js';
 
 function buildEmailHtml({ opening_line, findings_summary, closing_line }, trackingId, siteUrl) {
   const pixelUrl = `${siteUrl}/api/track-open?id=${trackingId}`;
@@ -23,10 +22,6 @@ function buildEmailHtml({ opening_line, findings_summary, closing_line }, tracki
 export async function handler(event) {
   if (event.httpMethod !== 'POST') {
     return { statusCode: 405, body: 'Method not allowed' };
-  }
-
-  if (!isAuthorized(event)) {
-    return unauthorizedResponse();
   }
 
   const supabase = getSupabase();
