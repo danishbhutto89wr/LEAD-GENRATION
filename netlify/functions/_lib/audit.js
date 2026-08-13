@@ -2,10 +2,23 @@
 // pulls out the handful of signals the email generator needs: title, meta
 // description, H1, whether the page is reachable, and basic AEO/GEO
 // signals (structured data, FAQ schema, robots.txt, sitemap.xml).
+//
+// Every request has a hard timeout so one slow or unresponsive site can't
+// hold up the whole batch.
 
 function extract(regex, html) {
   const match = html.match(regex);
   return match ? match[1].trim() : null;
+}
+
+async function fetchWithTimeout(url, ms = 6000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { redirect: 'follow', signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function auditWebsite(rawUrl) {
@@ -28,7 +41,7 @@ export async function auditWebsite(rawUrl) {
   };
 
   try {
-    const res = await fetch(url, { redirect: 'follow' });
+    const res = await fetchWithTimeout(url);
     result.statusCode = res.status;
     result.reachable = res.status < 400;
 
@@ -48,14 +61,14 @@ export async function auditWebsite(rawUrl) {
   }
 
   try {
-    const robotsRes = await fetch(new URL('/robots.txt', url).toString());
+    const robotsRes = await fetchWithTimeout(new URL('/robots.txt', url).toString(), 4000);
     result.hasRobotsTxt = robotsRes.status < 400;
   } catch {
     // ignore — treat as missing
   }
 
   try {
-    const sitemapRes = await fetch(new URL('/sitemap.xml', url).toString());
+    const sitemapRes = await fetchWithTimeout(new URL('/sitemap.xml', url).toString(), 4000);
     result.hasSitemap = sitemapRes.status < 400;
   } catch {
     // ignore — treat as missing
