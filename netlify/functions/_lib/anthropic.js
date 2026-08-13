@@ -1,6 +1,6 @@
-// Asks Claude to write the personalized parts of the outreach email based
-// on the audit findings. Returns a small JSON object that gets slotted
-// into the fixed HTML template in send-batch.js.
+// Asks Google Gemini (free tier) to write the personalized parts of the
+// outreach email based on the audit findings. Returns a small JSON object
+// that gets slotted into the fixed HTML template in send-batch.js.
 
 export async function generateEmailContent(audit, website) {
   const findings = [];
@@ -19,31 +19,32 @@ Website audited: ${website}
 Findings from the automated audit:
 ${findings.length ? findings.map((f) => `- ${f}`).join('\n') : '- No major issues found; site looks reasonably well optimized.'}
 
-Write JSON only, no other text, in this exact shape:
+Write JSON only, no other text, no markdown code fences, in this exact shape:
 {"subject": "short subject line under 60 characters", "opening_line": "one warm, specific opening sentence referencing the site", "findings_summary": "2-3 sentences in plain language summarizing the 2-3 most important findings and why they matter for search/AI visibility", "closing_line": "one short closing sentence inviting a reply, no signature"}
 
 Keep the tone helpful and non-salesy, avoid jargon, and do not exaggerate the findings.`;
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-5',
-      max_tokens: 500,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  });
+  const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.7, maxOutputTokens: 500 },
+      }),
+    }
+  );
 
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(`Anthropic API error: ${data.error?.message || res.status}`);
+    throw new Error(`Gemini API error: ${data.error?.message || res.status}`);
   }
 
-  const text = data.content?.find((b) => b.type === 'text')?.text || '{}';
+  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '{}';
   const cleaned = text.replace(/```json|```/g, '').trim();
 
   try {
